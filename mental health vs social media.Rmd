@@ -1,0 +1,128 @@
+```{r}
+library(shiny)
+library(bslib)
+library(tidyverse)
+library(plotly)
+library(broom)
+
+data <- read.csv("social_media_usage_mental_health.csv")
+
+data <- data %>%
+  mutate(platform = as.factor(platform),
+         country = as.factor(country))
+
+ui <- fluidPage(
+  theme = bs_theme(version = 5, bootswatch = "darkly", primary = "#00bc8c"),
+  
+  titlePanel("The Digital Detox: Tracking the Cost of Connectivity"),
+  
+  fluidRow(
+    column(12,
+           wellPanel(
+             h4("The Narrative"),
+             p("In an era of infinite scrolling, does our time online directly impact our mental energy? 
+               This dashboard explores the relationship between social media usage and mental fatigue levels. 
+               By using Simple Linear Regression (SLR), we can predict how tired our brains become for 
+               every extra minute we spend on our favorite apps.")
+           )
+    )
+  ),
+  
+  sidebarLayout(
+    sidebarPanel(
+      h4("Interactive Controls"),
+      p("Filter the story by selecting specific platforms or age groups."),
+      
+      selectInput("platform_filter", "Choose Platform:", 
+                  choices = c("All", levels(data$platform))),
+      
+      sliderInput("age_filter", "Select Age Range:",
+                  min = min(data$age), max = max(data$age),
+                  value = c(18, 65)),
+      
+      hr(),
+      h4("Fatigue Predictor"),
+      p("Enter your daily usage to see your predicted fatigue level:"),
+      numericInput("predict_input", "Daily Minutes:", value = 120, min = 0),
+      actionButton("calc_btn", "Calculate Risk", class = "btn-primary")
+    ),
+    
+    mainPanel(
+      tabsetPanel(
+        tabPanel("The Visualization", 
+                 plotlyOutput("regressionPlot", height = "500px"),
+                 br(),
+                 wellPanel(
+                   h5("What the Data Shows"),
+                   textOutput("modelSummaryText")
+                 )
+        ),
+        tabPanel("The Model Breakdown", 
+                 h4("Regression Statistics"),
+                 p("For the technical audience: Here is how the numbers stack up."),
+                 tableOutput("modelStats"),
+                 plotOutput("residualPlot", height = "300px")
+        )
+      )
+    )
+  )
+)
+
+server <- function(input, output) {
+  
+  filtered_data <- reactive({
+    df <- data
+    if (input$platform_filter != "All") {
+      df <- df %>% filter(platform == input$platform_filter)
+    }
+    df <- df %>% filter(age >= input$age_filter[1] & age <= input$age_filter[2])
+    return(df)
+  })
+  
+  model <- reactive({
+    lm(mental_fatigue_level ~ daily_usage_minutes, data = filtered_data())
+  })
+  
+  output$regressionPlot <- renderPlotly({
+    p <- ggplot(filtered_data(), aes(x = daily_usage_minutes, y = mental_fatigue_level)) +
+      geom_point(alpha = 0.4, color = "#3498db") +
+      geom_smooth(method = "lm", color = "#e74c3c", se = TRUE) +
+      theme_minimal() +
+      labs(title = paste("Usage vs Fatigue (", input$platform_filter, ")"),
+           x = "Daily Usage (Minutes)",
+           y = "Mental Fatigue Level (1-10)")
+    
+    ggplotly(p)
+  })
+  
+  output$modelSummaryText <- renderText({
+    m <- model()
+    coeffs <- coef(m)
+    r_sq <- summary(m)$r.squared
+    
+    paste0("Our model suggests that for every 60 minutes of additional scrolling, your mental fatigue increases by approximately ", 
+           round(coeffs[2] * 60, 2), " points. Currently, this model explains ", 
+           round(r_sq * 100, 1), "% of the variation in fatigue for your selected group.")
+  })
+  
+  output$modelStats <- renderTable({
+    tidy(model())
+  })
+  
+  output$residualPlot <- renderPlot({
+    plot(model(), which = 1, col = "#00bc8c", main = "Residuals vs Fitted (Model Accuracy)")
+  })
+  
+  observeEvent(input$calc_btn, {
+    pred <- predict(model(), newdata = data.frame(daily_usage_minutes = input$predict_input))
+    showModal(modalDialog(
+      title = "Your Predicted Mental Fatigue",
+      paste("Based on your data, spending", input$input_input, "minutes daily would result in a predicted mental fatigue level of:", round(pred, 2), "/ 10"),
+      easyClose = TRUE,
+      footer = NULL
+    ))
+  })
+}
+
+shinyApp(ui = ui, server = server)
+```
